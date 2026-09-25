@@ -13,6 +13,12 @@ mode, and a **director mode** that runs a 30-second guided take for you.
 Everything runs locally in the browser (Vite + TypeScript + Three.js + lil-gui +
 MediaPipe Tasks Vision). No backend, and your video never leaves your machine.
 
+| Hero view: tiny twin, giant me | Reveal: same size, trapezoid room | Top view: the classic plan |
+| --- | --- | --- |
+| ![Hero view](docs/hero.jpg) | ![Reveal](docs/reveal.jpg) | ![Top view](docs/top.jpg) |
+
+*(Screenshots use the built-in demo performer.)*
+
 ## Setup
 
 ```bash
@@ -193,3 +199,11 @@ The selfie segmentation model (`public/models/selfie_segmenter.tflite`) and the
 MediaPipe wasm runtime are served locally, so the app works offline. The optional
 *multiclass* model (sharper hair and clothing edges, 16 MB) is fetched from
 Google's model storage when you select it.
+
+## Credits
+
+- Segmentation: [MediaPipe Tasks Vision](https://ai.google.dev/edge/mediapipe/solutions/vision/image_segmenter)
+  and its *selfie segmenter* model (`public/models/selfie_segmenter.tflite`), both
+  by Google under the Apache License 2.0.
+- Rendering: [three.js](https://threejs.org); settings panel: [lil-gui](https://lil-gui.georgealways.com).
+- The Ames room is named after Adelbert Ames Jr., who built the first one in 1946.

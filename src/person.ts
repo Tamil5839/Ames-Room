@@ -144,7 +144,8 @@ export class BodyTracker {
     // Crop: padded bounding box, grows at once and shrinks slowly, clamped to the ROI.
     const h = Math.max(1, st.y1 - st.y0);
     const pad = h * 0.1;
-    const want = { x0: st.x0 - pad, y0: st.y0 - pad * 0.6, x1: st.x1 + pad, y1: st.y1 + pad * 0.4 };
+    // The card's bottom edge is the feet (a hair of margin keeps the soft sole edge).
+    const want = { x0: st.x0 - pad, y0: st.y0 - pad * 0.6, x1: st.x1 + pad, y1: st.y1 + pad * 0.05 };
     if (!this.hasCrop) {
       this.crop = want;
       this.hasCrop = true;

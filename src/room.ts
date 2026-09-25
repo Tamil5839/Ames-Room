@@ -730,9 +730,15 @@ export class AmesRoom {
     return g;
   }
 
-  setDiagramOpacity(opacity: number): void {
+  /** `eyeOpacity` lets the eye marker wait until the camera is well away from it. */
+  setDiagramOpacity(opacity: number, eyeOpacity = opacity): void {
     this.diagram.visible = opacity > 0.001;
     for (const m of this.diagramMaterials) m.opacity = opacity * (m instanceof THREE.LineDashedMaterial ? 0.9 : 0.8);
+    this.eyeMarker.visible = eyeOpacity > 0.01;
+    this.eyeMarker.traverse((o) => {
+      const mat = (o as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined;
+      if (mat) mat.opacity = eyeOpacity * 0.9;
+    });
   }
 
   // ---------------------------------------------------------------- warp

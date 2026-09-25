@@ -697,7 +697,8 @@ function frame(now: number): void {
   // 4. Room state, overlays and post.
   room.updateCutaway(rig.camera.position);
   const reveal = rig.revealAmount();
-  room.setDiagramOpacity(reveal);
+  const eyeDist = rig.camera.position.distanceTo(new THREE.Vector3(EYE.x, EYE.y, EYE.z));
+  room.setDiagramOpacity(reveal, THREE.MathUtils.smoothstep(eyeDist, 2.5, 6));
   liveCard.setMarker(reveal * 0.85);
   ghost.card.setMarker(reveal * 0.85);
   updateSightDiagram(reveal);
