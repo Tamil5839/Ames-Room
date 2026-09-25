@@ -80,6 +80,8 @@ export class UI {
   private sourceFolder!: GUI;
   private sourceCtrl: Controller | null = null;
   private readonly sourceState = { source: '' };
+  private readonly warpInfo = { sizeChange: '' };
+  private warpInfoCtrl: Controller | null = null;
 
   constructor(
     root: HTMLElement,
@@ -165,6 +167,7 @@ export class UI {
     const warp = gui.addFolder('Warp');
     warp.add(s, 'leftFactor', 1.1, 3.2, 0.01).name('far corner ×distance').onChange(on('leftFactor'));
     warp.add(s, 'rightFactor', 0.5, 1.0, 0.01).name('near corner ×distance').onChange(on('rightFactor'));
+    this.warpInfoCtrl = warp.add(this.warpInfo, 'sizeChange').name('you change size by').disable();
 
     const me = gui.addFolder('Me');
     me.add(s, 'personHeight', 1.2, 2.2, 0.01).name('my real height (m)').onChange(on('personHeight'));
@@ -230,6 +233,12 @@ export class UI {
       .add(this.sourceState, 'source', opts)
       .name('camera')
       .onChange((v: string) => this.handlers.onSwitchSource(v));
+  }
+
+  /** Live readout of how much the warp changes your apparent height along the walking line. */
+  setSizeChange(ratio: number): void {
+    this.warpInfo.sizeChange = `${ratio.toFixed(2)}×`;
+    this.warpInfoCtrl?.updateDisplay();
   }
 
   refreshGui(): void {

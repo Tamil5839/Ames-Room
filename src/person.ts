@@ -15,8 +15,8 @@ import { walkPoint, type WalkLine } from './walk';
 
 export type BodyModeResolved = 'full' | 'upper';
 
-/** Typical adult shoulder width (with arms), used to calibrate scale in upper-body mode. */
-export const SHOULDER_WIDTH_M = 0.46;
+/** Typical adult shoulder width with the arms hanging, used to calibrate scale in upper-body mode. */
+export const SHOULDER_WIDTH_M = 0.48;
 
 /** Card rectangle relative to the feet anchor (metres, card-local) and its source region (ROI image coords, v down). */
 export interface CardLayout {
@@ -109,7 +109,9 @@ export class BodyTracker {
 
     // Scale: the person's standing height (or shoulder width) in pixels, robust median over ~2.5 s.
     // Locked or frozen scales still take a first estimate if there is none yet.
-    if ((!this.frozen && !s.lockScale) || this.mpp === 0) {
+    // Frames where the person is partly out of view would give a wrong size: skip them.
+    const partial = st.touchesTop || st.touchesSide;
+    if (((!this.frozen && !s.lockScale) || this.mpp === 0) && !(partial && this.mpp > 0)) {
       let target = 0;
       if (this.mode === 'full') {
         const hPx = st.feetY - st.headY;
@@ -121,7 +123,11 @@ export class BodyTracker {
         if (this.shoulders.length > 75) this.shoulders.shift();
         if (this.shoulders.length) target = SHOULDER_WIDTH_M / median(this.shoulders);
       }
-      if (target > 0) this.mpp = this.mpp ? this.mpp + (target - this.mpp) * (1 - Math.exp(-dt * 2.5)) : target;
+      // Settle quickly at first, then follow only slow changes (walking closer to the
+      // camera) so segmentation noise never makes you "breathe" in size.
+      const samples = this.mode === 'full' ? this.heights.length : this.shoulders.length;
+      const rate = samples < 45 ? 2.5 : 0.35;
+      if (target > 0) this.mpp = this.mpp ? this.mpp + (target - this.mpp) * (1 - Math.exp(-dt * rate)) : target;
     }
 
     // Anchor: the feet (full body) or the bottom cut of the frame (upper body).

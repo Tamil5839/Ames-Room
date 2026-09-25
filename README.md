@@ -141,6 +141,22 @@ the real one: from the hero view they line up exactly.
   your future self for 10 s. The take then loops as a second you. Stand in the near
   (right) corner and look down at your tiny twin. Both of you cast contact shadows.
 
+## Troubleshooting
+
+- **The chip says "upper body · counter" but I wanted my whole body:** your feet
+  are touching the bottom of the frame. Step back or lower/tilt the phone until
+  there is floor below your shoes. You can also force *Settings → Me → body mode*.
+- **I look too tall or too short:** set *my real height*, stand tall with your
+  whole body in view and press *recalibrate my height*. *Lock my scale* keeps it.
+- **Ragged or flickering edges:** use a plainer background and more even light,
+  raise *temporal smoothing* or *edge erosion*, or try the *multiclass* model.
+- **The room edges don't line up:** turn on *Debug → apparent room wireframe*; if
+  the cyan lines don't sit exactly on the room from the hero view, check the
+  console for the alignment report (it should say PASS).
+- **Segmentation won't start:** the app tries a Web Worker with the GPU, then the
+  CPU, then the main thread. Add `?worker=0` to the URL to force the main-thread
+  path. Camera access needs `https://` or `localhost`.
+
 ## Performance
 
 Rendering runs at display rate while segmentation runs at up to 30 fps in a Web

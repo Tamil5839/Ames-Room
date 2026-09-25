@@ -5,7 +5,7 @@ import { AmesWarp } from './warp';
 import { AmesRoom } from './room';
 import { CameraRig, type ViewName } from './camera';
 import { PostFX } from './post';
-import { runStartupChecks } from './checks';
+import { runStartupChecks, walkingSizeRatio } from './checks';
 import { BodyTracker, LiveTextures, PersonCard, type CardLayout, type PlaceContext } from './person';
 import { WalkMapper, walkLine, walkPoint, type WalkLine } from './walk';
 import { CameraSource, listCameras, openCamera, type PersonFrame, type PersonSource } from './segment';
@@ -45,6 +45,10 @@ const recorder = new Recorder();
 const video = document.createElement('video');
 video.playsInline = true;
 video.muted = true;
+// Kept in the DOM (invisible): some browsers don't decode frames for detached videos.
+video.setAttribute('aria-hidden', 'true');
+Object.assign(video.style, { position: 'fixed', left: '0', top: '0', width: '2px', height: '2px', opacity: '0', pointerEvents: 'none' });
+document.body.append(video);
 
 let line: WalkLine = walkLine(settings.walkDepth, settings.walkMargin);
 let source: PersonSource | null = null;
@@ -207,6 +211,7 @@ function applySettings(key?: keyof Settings): void {
     rig.setWalk(line.z, settings.walkMargin);
     updateWalkHelper();
   }
+  ui.setSizeChange(walkingSizeRatio(warp, line.z, settings.walkMargin));
   walker.rangeMin = settings.walkRangeMin;
   walker.rangeMax = settings.walkRangeMax;
   walker.omega = settings.walkSpring;

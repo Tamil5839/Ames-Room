@@ -76,7 +76,7 @@ class WorkerBackend implements Backend {
   constructor(config: SegmenterConfig) {
     this.worker = new Worker(new URL('./segment.worker.ts', import.meta.url), { type: 'module', name: 'ames-segmenter' });
     this.ready = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('segmentation worker timed out')), 45000);
+      const timer = setTimeout(() => reject(new Error('segmentation worker timed out')), 90000);
       this.worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
         const msg = e.data;
         if (msg.type === 'ready') {
@@ -153,6 +153,8 @@ class MainThreadBackend implements Backend {
 async function createBackend(model: SegModel, onStatus: (s: string) => void): Promise<Backend> {
   const config = segmenterConfig(model, 'GPU');
   try {
+    // ?worker=0 forces the main-thread path (debugging / browsers with worker trouble).
+    if (new URLSearchParams(location.search).get('worker') === '0') throw new Error('worker disabled by ?worker=0');
     onStatus('Loading segmentation (worker)…');
     const wb = new WorkerBackend(config);
     await wb.whenReady();
@@ -321,7 +323,8 @@ export class CameraSource implements PersonSource {
       this.countFps();
     } catch (err) {
       color?.close();
-      if (!this.stopped) console.warn('[Ames] segmentation frame failed:', err);
+      // A model switch or stop cancels in-flight frames on purpose.
+      if (!this.stopped && backend === this.backend) console.warn('[Ames] segmentation frame failed:', err);
     }
   }
 

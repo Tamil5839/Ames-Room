@@ -34,6 +34,9 @@ export interface MaskStats {
   shoulderW: number;
   /** The mask runs into the bottom edge of the video frame (feet cut off). */
   touchesBottom: boolean;
+  /** The mask runs into the top or a side edge of the frame (partly out of view). */
+  touchesTop: boolean;
+  touchesSide: boolean;
 }
 
 export const EMPTY_STATS: MaskStats = {
@@ -50,6 +53,8 @@ export const EMPTY_STATS: MaskStats = {
   headY: 0,
   shoulderW: 0,
   touchesBottom: false,
+  touchesTop: false,
+  touchesSide: false,
 };
 
 /**
@@ -133,7 +138,7 @@ export function smoothMask(cur: Uint8Array, prev: Uint8Array, smoothing: number)
 const T = 128;
 
 /** Person statistics from a mask, converted to video pixels. */
-export function maskStats(mask: Uint8Array, roi: Roi, _videoW: number, videoH: number, n = MASK_SIZE): MaskStats {
+export function maskStats(mask: Uint8Array, roi: Roi, videoW: number, videoH: number, n = MASK_SIZE): MaskStats {
   const colCount = new Uint16Array(n);
   let total = 0;
   for (let j = 0; j < n; j++) {
@@ -240,19 +245,26 @@ export function maskStats(mask: Uint8Array, roi: Roi, _videoW: number, videoH: n
     }
   }
 
-  // Shoulder width: 75th percentile of row widths in the upper body.
-  const r0 = headJ + Math.round((yb - headJ) * 0.15);
-  const r1 = headJ + Math.round((yb - headJ) * 0.45);
+  // Shoulder width (arms hanging included): the 80th percentile of row widths below the
+  // head. Head, neck and legs are narrower, a horizontal arm only covers a few rows, so
+  // this lands on the shoulders/chest both with full-body and with laptop framing.
   const widths: number[] = [];
-  for (let j = r0; j <= r1; j++) widths.push(rowCount[j]);
+  for (let j = headJ + Math.round((yb - headJ) * 0.1); j <= yb; j++) widths.push(rowCount[j]);
   widths.sort((a, b) => a - b);
-  const shoulder = widths.length ? widths[Math.min(widths.length - 1, Math.floor(widths.length * 0.75))] : 0;
+  const shoulder = widths.length ? widths[Math.min(widths.length - 1, Math.floor(widths.length * 0.8))] : 0;
 
   const k = roi.size / n;
   const vx = (i: number) => roi.x + (i + 0.5) * k;
   const vy = (j: number) => roi.y + (j + 0.5) * k;
   const frameBottom = (videoH - roi.y) / k; // in mask rows
-  const touchesBottom = yb >= Math.min(n - 1, frameBottom - 1) - 2;
+  // Only the frame's own bottom edge counts: a mask cut by the ROI edge just means the
+  // ROI lags behind (the tracker widens it next frame), not that the feet are out of view.
+  const touchesBottom = frameBottom <= n + 0.5 && yb >= frameBottom - 3;
+  const frameTop = -roi.y / k;
+  const frameLeft = -roi.x / k;
+  const frameRight = (videoW - roi.x) / k;
+  const touchesTop = ya <= Math.max(0, frameTop) + 1;
+  const touchesSide = xa <= Math.max(0, frameLeft) + 1 || xb >= Math.min(n - 1, frameRight - 1) - 1;
   return {
     found: true,
     area: count / (n * n),
@@ -267,6 +279,8 @@ export function maskStats(mask: Uint8Array, roi: Roi, _videoW: number, videoH: n
     headY: vy(headJ) - k / 2,
     shoulderW: shoulder * k,
     touchesBottom,
+    touchesTop,
+    touchesSide,
   };
 }
 

@@ -47,6 +47,17 @@ describe('maskStats', () => {
     expect(s.feetY).toBeCloseTo(roi.y + 231 * 2, -1);
     expect(s.feetX).toBeCloseTo(roi.x + 128.5 * 2, -1);
     expect(s.touchesBottom).toBe(false);
+    expect(s.touchesTop).toBe(false);
+    expect(s.touchesSide).toBe(false);
+  });
+
+  it('flags a person whose head leaves the top of the frame', () => {
+    // ROI reaches 40 px above the frame, so the frame's top edge is mask row 20.
+    const roi: Roi = { x: 100, y: -40, size: 512 };
+    const cut = figure({ cx: 128, top: 0, bottom: 200 });
+    cut.fill(0, 0, 20 * N); // nothing above the frame edge
+    expect(maskStats(cut, roi, 1280, 720).touchesTop).toBe(true);
+    expect(maskStats(figure({ cx: 128, top: 40, bottom: 200 }), roi, 1280, 720).touchesTop).toBe(false);
   });
 
   it('ignores a hand raised to the side when measuring the head', () => {
@@ -65,6 +76,21 @@ describe('maskStats', () => {
     const low: Roi = { x: 100, y: 250, size: 512 }; // frame bottom at mask row 235
     const s = maskStats(figure({ cx: 128, top: 40, bottom: 240 }), low, 1280, 720);
     expect(s.touchesBottom).toBe(true);
+  });
+
+  it('measures the shoulders, not the head, with laptop framing (feet out of frame)', () => {
+    // Only head to hips visible: the body runs off the bottom of the mask.
+    const m = figure({ cx: 128, top: 20, bottom: 470 });
+    const s = maskStats(m, { x: 0, y: 0, size: 512 }, 512, 512);
+    const torsoPx = 2 * Math.round(450 * 0.12) + 1; // torso width in mask px (figure())
+    expect(s.touchesBottom).toBe(true);
+    expect(s.shoulderW / 2).toBeGreaterThan(torsoPx * 0.9);
+  });
+
+  it('does not mistake a person cut by the ROI edge for feet out of the frame', () => {
+    // ROI bottom at y = 0 + 512 = 512 while the frame continues down to 720.
+    const s = maskStats(figure({ cx: 128, top: 40, bottom: 255 }), { x: 100, y: 0, size: 512 }, 1280, 720);
+    expect(s.touchesBottom).toBe(false);
   });
 
   it('reports nothing for an empty mask', () => {
