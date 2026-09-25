@@ -54,6 +54,9 @@ let presence = 0;
 let recordSize: [number, number] | null = null;
 let countdownAbort: (() => void) | null = null;
 let lockPulse = 0;
+/** Auto exposure for the cutout: nudges the person's mean brightness toward the room's. */
+let exposure = 1;
+const PERSON_TARGET_LUM = 0.2;
 let caption: { text: string | null; opacity: number } = { text: null, opacity: 0 };
 
 const walkHelper = new THREE.Line(
@@ -63,7 +66,59 @@ const walkHelper = new THREE.Line(
 walkHelper.renderOrder = 1001;
 walkHelper.frustumCulled = false;
 
-scene.add(room.object, liveCard.object, ghost.card.object, room.wireframe, walkHelper, room.diagram);
+/**
+ * Diagram overlay for the reveal and top views: dashed sight lines from the eye to
+ * each person's feet and head, and rings where each person APPEARS to stand in
+ * the imagined room (on the same sight line, 1/s times closer and smaller).
+ */
+const sightMat = new THREE.LineDashedMaterial({ color: 0xfff0d0, dashSize: 0.16, gapSize: 0.12, transparent: true, depthTest: false, depthWrite: false });
+const sightRays = new THREE.LineSegments(new THREE.BufferGeometry(), sightMat);
+sightRays.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(8 * 3), 3));
+sightRays.geometry.setAttribute('lineDistance', new THREE.BufferAttribute(new Float32Array(8), 1));
+sightRays.frustumCulled = false;
+sightRays.renderOrder = 15;
+const apparentRings = [0xffd27a, 0x35e4ff].map((color) => {
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.24, 0.28, 40),
+    new THREE.MeshBasicMaterial({ color, transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide }),
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.renderOrder = 16;
+  ring.frustumCulled = false;
+  return ring;
+});
+
+function updateSightDiagram(opacity: number): void {
+  const pos = sightRays.geometry.getAttribute('position') as THREE.BufferAttribute;
+  const cards = [liveCard, ghost.card];
+  let n = 0;
+  cards.forEach((card, i) => {
+    const ring = apparentRings[i];
+    const on = card.visible && opacity > 0.01;
+    ring.visible = on;
+    if (!on) return;
+    for (const h of [0, card.topHeight()]) {
+      pos.setXYZ(n++, EYE.x, EYE.y, EYE.z);
+      pos.setXYZ(n++, card.feet.x, card.feet.y + h, card.feet.z);
+    }
+    ring.position.set(card.apparentFeet.x, 0.01, card.apparentFeet.z);
+    ring.scale.setScalar(1 / card.factor);
+    ring.material.opacity = opacity * 0.9;
+  });
+  for (let i = n; i < 8; i++) pos.setXYZ(i, EYE.x, EYE.y, EYE.z);
+  pos.needsUpdate = true;
+  // Dashes measured from the eye (updated in place rather than reallocated every frame).
+  const dist = sightRays.geometry.getAttribute('lineDistance') as THREE.BufferAttribute;
+  for (let i = 0; i < 8; i += 2) {
+    dist.setX(i, 0);
+    dist.setX(i + 1, Math.hypot(pos.getX(i + 1) - pos.getX(i), pos.getY(i + 1) - pos.getY(i), pos.getZ(i + 1) - pos.getZ(i)));
+  }
+  dist.needsUpdate = true;
+  sightRays.visible = n > 0;
+  sightMat.opacity = opacity * 0.75;
+}
+
+scene.add(room.object, liveCard.object, ghost.card.object, room.wireframe, walkHelper, room.diagram, sightRays, ...apparentRings);
 
 // ------------------------------------------------------------------ UI
 
@@ -162,9 +217,8 @@ function applySettings(key?: keyof Settings): void {
   post.vignette = settings.vignette;
   room.wireframe.visible = settings.debugWireframe;
   walkHelper.visible = settings.debugWireframe;
-  sfx.enabled = true;
   if (key === 'mirror' && source instanceof DemoSource) source.mirrored = settings.mirror;
-  if (key === 'personHeight' || key === 'bodyMode') tracker.recalibrate();
+  if (key === 'bodyMode') tracker.recalibrate();
   if (key === 'segModel' && source instanceof CameraSource) {
     ui.toast(`Loading the ${settings.segModel} model…`);
     void source.setModel(settings.segModel).catch((err) => ui.toast(`Model failed to load: ${err}`));
@@ -249,15 +303,15 @@ async function startCamera(deviceId?: string): Promise<void> {
       source = null;
     }
     ui.setOnboardingError(msg);
-    document.querySelector('.onboarding')?.classList.remove('hidden');
+    ui.showOnboarding();
   } finally {
     ui.setOnboardingBusy(false);
   }
 }
 
-function startDemo(): void {
+function startDemo(framing: 'full' | 'upper' = 'full'): void {
   sfx.unlock();
-  setSource(new DemoSource());
+  setSource(new DemoSource(framing));
   ui.hideOnboarding();
   ui.toast('Demo performer: ← → to move, W to wave (or let it wander)');
 }
@@ -563,6 +617,10 @@ function frame(now: number): void {
   if (f) {
     live.set(f);
     lastFrame = f;
+    if (f.lum > 0.005 && f.stats.found) {
+      const want = Math.min(1.6, Math.max(0.7, PERSON_TARGET_LUM / f.lum));
+      exposure += (want - exposure) * 0.06;
+    }
     tracker.update(f, settings);
     if (tracker.found) walker.setObservation(tracker.xNorm, settings.mirror);
     const l = tracker.layout(f, settings.mirror);
@@ -580,6 +638,7 @@ function frame(now: number): void {
   director.update(dt);
 
   // 3. People.
+  liveCard.material.uniforms.uBright.value = settings.personBrightness * (settings.autoBrightness ? exposure : 1);
   const ctx = placeCtx();
   if (layout && presence > 0.003) {
     liveCard.place({ u: walker.u, layout, mode: tracker.mode, opacity: presence }, ctx);
@@ -600,6 +659,7 @@ function frame(now: number): void {
   room.setDiagramOpacity(reveal);
   liveCard.setMarker(reveal * 0.85);
   ghost.card.setMarker(reveal * 0.85);
+  updateSightDiagram(reveal);
   room.setClock(new Date());
   lockPulse = Math.max(0, lockPulse - dt / 0.7);
   post.pulse = Math.sin(Math.min(1, lockPulse) * Math.PI) * 0.8;
@@ -640,7 +700,7 @@ applySettings();
 runStartupChecks(room, warp, line.z, settings.walkMargin);
 requestAnimationFrame(frame);
 
-if (params.has('demo')) startDemo();
+if (params.has('demo')) startDemo(params.get('demo') === 'upper' ? 'upper' : 'full');
 else
   void listCameras()
     .then((cams) => ui.setCameras(cams))
@@ -668,6 +728,7 @@ Object.assign(window as unknown as Record<string, unknown>, {
     recordAction,
     directorAction,
     projectHeight: () => projectPersonHeight(),
+    setCaption: (text: string | null, opacity: number) => (caption = { text, opacity }),
   },
 });
 

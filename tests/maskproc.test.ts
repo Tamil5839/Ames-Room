@@ -102,11 +102,29 @@ describe('mask temporal processing', () => {
 });
 
 describe('RoiTracker', () => {
+  it('jumps toward a person who is cut off by the ROI edge', () => {
+    const t = new RoiTracker();
+    const full = t.current(1280, 720);
+    t.update(maskStats(figure({ cx: 128, top: 90, bottom: 200 }), full, 1280, 720), 1280, 720);
+    const r1 = t.current(1280, 720);
+    expect(r1.size).toBeLessThan(full.size);
+    // The person has moved right so the ROI only sees their left half.
+    const cut = new Uint8Array(N * N);
+    const src = figure({ cx: 250, top: 40, bottom: 230 });
+    cut.set(src);
+    const s = maskStats(cut, r1, 1280, 720);
+    t.update(s, 1280, 720);
+    const r2 = t.current(1280, 720);
+    const personX = r1.x + (250.5 / N) * r1.size;
+    expect(r2.x + r2.size).toBeGreaterThan(personX + 0.1 * r1.size);
+  });
+
   it('zooms in on the person and stays steady for small moves', () => {
     const t = new RoiTracker();
     const full = t.current(1280, 720);
     expect(full.size).toBe(1280);
-    const stats = maskStats(figure({ cx: 128, top: 40, bottom: 230 }), full, 1280, 720);
+    // Full-frame ROI is 1280 px for 256 mask px (5 px each): a 550 px tall person.
+    const stats = maskStats(figure({ cx: 128, top: 90, bottom: 200 }), full, 1280, 720);
     t.update(stats, 1280, 720);
     const r1 = t.current(1280, 720);
     expect(r1.size).toBeLessThan(full.size);

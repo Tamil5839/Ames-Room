@@ -411,7 +411,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 /* ---------------------------------------------------------------- lil-gui */
 
-.settings-panel.lil-gui.root {
+#ui .lil-gui.settings-panel {
   position: absolute;
   top: 60px;
   right: 16px;

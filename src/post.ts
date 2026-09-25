@@ -123,8 +123,12 @@ export class PostFX {
     const w = Math.max(2, Math.round(this.width * s));
     const h = Math.max(2, Math.round(this.height * s));
     const cv = this.captionCanvas;
-    cv.width = w;
-    cv.height = h;
+    if (cv.width !== w || cv.height !== h) {
+      cv.width = w;
+      cv.height = h;
+      // GPU texture storage is immutable once allocated: drop it so it is re-created at the new size.
+      this.captionTexture.dispose();
+    }
     const ctx = cv.getContext('2d')!;
     ctx.clearRect(0, 0, w, h);
     const text = this.captionText;
@@ -136,6 +140,18 @@ export class PostFX {
       const lines = wrap(ctx, text, w * 0.84);
       const lh = size * 1.22;
       const y0 = h * (w < h ? 0.84 : 0.885) - (lines.length - 1) * lh;
+      // Soft dark backing so the words stay legible over the checkerboard.
+      const cy = y0 + ((lines.length - 1) * lh) / 2 - size * 0.3;
+      const tw = Math.max(...lines.map((l) => ctx.measureText(l).width));
+      ctx.save();
+      ctx.translate(w / 2, cy);
+      ctx.scale(Math.max(1, (tw * 0.75) / (size * 1.6)), 1);
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, size * 1.6 + (lines.length - 1) * lh);
+      g.addColorStop(0, 'rgba(12, 8, 4, 0.42)');
+      g.addColorStop(1, 'rgba(12, 8, 4, 0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(-size * 3.2, -size * 3.2 - lines.length * lh, size * 6.4, size * 6.4 + lines.length * lh * 2);
+      ctx.restore();
       ctx.shadowColor = 'rgba(0,0,0,0.6)';
       ctx.shadowBlur = size * 0.35;
       ctx.shadowOffsetY = size * 0.04;

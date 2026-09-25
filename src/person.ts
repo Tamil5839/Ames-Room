@@ -63,6 +63,7 @@ export class BodyTracker {
   private crop = { x0: 0, y0: 0, x1: 0, y1: 0 };
   private hasCrop = false;
   private lastFrameTime = 0;
+  private height = 0;
 
   reset(): void {
     this.heights.length = 0;
@@ -83,6 +84,9 @@ export class BodyTracker {
     const st = frame.stats;
     const dt = this.lastFrameTime ? Math.min(0.25, (frame.time - this.lastFrameTime) / 1000) : 1 / 30;
     this.lastFrameTime = frame.time;
+    // A new real height rescales at once (even with the scale locked): same pixels, new metres.
+    if (this.height && s.personHeight !== this.height && this.mode === 'full') this.mpp *= s.personHeight / this.height;
+    this.height = s.personHeight;
     this.found = st.found;
     if (!st.found) return;
     this.xNorm = st.cx / frame.videoW;
@@ -104,7 +108,8 @@ export class BodyTracker {
     }
 
     // Scale: the person's standing height (or shoulder width) in pixels, robust median over ~2.5 s.
-    if (!this.frozen && !s.lockScale) {
+    // Locked or frozen scales still take a first estimate if there is none yet.
+    if ((!this.frozen && !s.lockScale) || this.mpp === 0) {
       let target = 0;
       if (this.mode === 'full') {
         const hPx = st.feetY - st.headY;
@@ -182,11 +187,14 @@ uniform vec4 uRect;   // xl, yb, xr, yt (metres, card-local)
 uniform vec4 uUvRect; // uL, vB, uR, vT (source image coords, v down)
 varying vec2 vUv;
 varying float vY;
+varying float vViewZ;
 void main() {
   vec2 p = mix(uRect.xy, uRect.zw, uv);
   vUv = mix(uUvRect.xy, uUvRect.zw, uv);
   vY = uv.y;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 0.0, 1.0);
+  vec4 mv = modelViewMatrix * vec4(p, 0.0, 1.0);
+  vViewZ = mv.z;
+  gl_Position = projectionMatrix * mv;
 }
 `;
 
@@ -230,6 +238,11 @@ vec4 cutout(vec2 uv) {
 #endif
 }
 
+#ifdef FOOT_PULL
+uniform vec2 uProj; // projectionMatrix[2][2], projectionMatrix[3][2]
+varying float vViewZ;
+#endif
+
 void main() {
   if (vUv.x < 0.0 || vUv.x > 1.0 || vUv.y < 0.0 || vUv.y > 1.0) discard;
   vec4 c = cutout(vUv);
@@ -237,6 +250,13 @@ void main() {
   c.rgb *= 1.0 - uFootShade * (1.0 - smoothstep(0.0, 0.14, vY));
   c *= uOpacity;
   if (c.a < 0.004) discard;
+#ifdef FOOT_PULL
+  // The real floor is tilted while the card stands upright: pull the bottom of the
+  // card a few centimetres toward the camera in depth so the floor never slices a shoe.
+  float z = vViewZ + 0.07 * (1.0 - smoothstep(0.0, 0.12, vY));
+  float ndc = (uProj.x * z + uProj.y) / -z;
+  gl_FragDepth = clamp(ndc * 0.5 + 0.5, 0.0, 1.0);
+#endif
   gl_FragColor = c;
 }
 `;
@@ -280,7 +300,7 @@ export class PersonCard {
   constructor(ghost: boolean, name: string) {
     this.material = new THREE.ShaderMaterial({
       name,
-      defines: ghost ? { GHOST: 1 } : {},
+      defines: ghost ? { GHOST: 1, FOOT_PULL: 1 } : { FOOT_PULL: 1 },
       uniforms: {
         uRect: { value: this.rect },
         uUvRect: { value: this.uvRect },
@@ -296,16 +316,16 @@ export class PersonCard {
         uFeather: { value: 0.5 },
         uErode: { value: 0.35 },
         uTexel: { value: new THREE.Vector2(1 / MASK_SIZE, 1 / MASK_SIZE) },
+        uProj: { value: new THREE.Vector2() },
       },
       vertexShader: cardVertex,
       fragmentShader: cardFragment,
       transparent: true,
       premultipliedAlpha: true,
-      depthWrite: true,
+      // Cards face the camera and are sorted back to front, so they blend correctly
+      // without writing depth (no halos where two people overlap on screen).
+      depthWrite: false,
       side: THREE.DoubleSide,
-      polygonOffset: true,
-      polygonOffsetFactor: -1,
-      polygonOffsetUnits: -2,
     });
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.material);
     this.mesh.frustumCulled = false;
@@ -371,6 +391,8 @@ export class PersonCard {
     const dx = camera.position.x - this.feet.x;
     const dz = camera.position.z - this.feet.z;
     if (dx * dx + dz * dz > 1e-6) this.object.rotation.set(0, Math.atan2(dx, dz), 0);
+    const pe = (camera as THREE.PerspectiveCamera).projectionMatrix.elements;
+    (this.material.uniforms.uProj.value as THREE.Vector2).set(pe[10], pe[14]);
     this.material.uniforms.uOpacity.value = pose.opacity;
     this.visible = pose.opacity > 0.003;
     this.object.visible = this.visible;

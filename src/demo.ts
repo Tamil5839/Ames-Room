@@ -1,4 +1,4 @@
-import { MASK_SIZE, RoiTracker, maskStats, type Roi } from './maskproc';
+import { MASK_SIZE, RoiTracker, maskStats, personLuminance, type Roi } from './maskproc';
 import { captureRoi, snapRoi, type PersonFrame, type PersonSource } from './segment';
 
 /**
@@ -41,6 +41,7 @@ export class DemoSource implements PersonSource {
   private readonly frame = makeCanvas(W, H);
   private readonly person = makeCanvas(W, H);
   private readonly maskCanvas = makeCanvas(MASK_SIZE, MASK_SIZE);
+  private lumCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
   private readonly roiTracker = new RoiTracker();
   private latest: PersonFrame | null = null;
   private stopped = false;
@@ -60,10 +61,13 @@ export class DemoSource implements PersonSource {
   private actionT = 0;
   private keys = { left: false, right: false };
   /** Height of the performer in frame pixels (feet to top of head). */
-  private readonly heightPx = 560;
-  private readonly feetY = 668;
+  private readonly heightPx: number;
+  private readonly feetY: number;
 
-  constructor() {
+  /** framing 'upper' simulates a laptop camera: head to hips in frame, feet cut off. */
+  constructor(framing: 'full' | 'upper' = 'full') {
+    this.heightPx = framing === 'upper' ? 1250 : 560;
+    this.feetY = framing === 'upper' ? 1250 + 70 : 668;
     this.loop = this.loop.bind(this);
     this.raf = requestAnimationFrame(this.loop);
   }
@@ -193,13 +197,14 @@ export class DemoSource implements PersonSource {
     small.close();
     const mask = this.maskFor(roi);
     const stats = maskStats(mask, roi, W, H);
+    const lum = this.luminanceFor(roi, mask);
     this.roiTracker.update(stats, W, H);
     if (this.stopped) {
       color.close();
       return;
     }
     this.latest?.color.close();
-    this.latest = { id: ++this.id, time: now, color, mask, roi, videoW: W, videoH: H, stats };
+    this.latest = { id: ++this.id, time: now, color, mask, roi, videoW: W, videoH: H, stats, lum };
     this.fpsCount++;
     if (now - this.fpsT0 >= 1000) {
       this.fps = (this.fpsCount * 1000) / (now - this.fpsT0);
@@ -216,6 +221,14 @@ export class DemoSource implements PersonSource {
     const mask = new Uint8Array(MASK_SIZE * MASK_SIZE);
     for (let i = 0; i < mask.length; i++) mask[i] = data[i * 4 + 3];
     return mask;
+  }
+
+  private luminanceFor(roi: Roi, mask: Uint8Array): number {
+    const n = 32;
+    this.lumCanvas ??= makeCanvas(n, n);
+    const ctx = this.lumCanvas.getContext('2d', { willReadFrequently: true }) as Ctx;
+    ctx.drawImage(this.frame as CanvasImageSource, roi.x, roi.y, roi.size, roi.size, 0, 0, n, n);
+    return personLuminance(ctx.getImageData(0, 0, n, n).data, n, mask);
   }
 
   take(): PersonFrame | null {

@@ -52,6 +52,28 @@ export const EMPTY_STATS: MaskStats = {
   touchesBottom: false,
 };
 
+/**
+ * Mean linear luminance of the person: `rgba` is a small (n x n) RGBA copy of the
+ * ROI crop, the mask weights each pixel. Returns -1 when nobody is there.
+ */
+export function personLuminance(rgba: Uint8ClampedArray, n: number, mask: Uint8Array, maskSize = MASK_SIZE): number {
+  const step = maskSize / n;
+  let sum = 0;
+  let wsum = 0;
+  for (let j = 0; j < n; j++) {
+    const mj = Math.min(maskSize - 1, Math.floor((j + 0.5) * step));
+    for (let i = 0; i < n; i++) {
+      const w = mask[mj * maskSize + Math.min(maskSize - 1, Math.floor((i + 0.5) * step))];
+      if (w < 128) continue;
+      const k = (j * n + i) * 4;
+      const l = (0.2126 * rgba[k] + 0.7152 * rgba[k + 1] + 0.0722 * rgba[k + 2]) / 255;
+      sum += w * Math.pow(l, 2.2);
+      wsum += w;
+    }
+  }
+  return wsum > 0 ? sum / wsum : -1;
+}
+
 /** Float confidences (0..1) → uint8. `invert` for background-class masks. */
 export function toUint8(src: Float32Array, out: Uint8Array, invert = false): void {
   const n = Math.min(src.length, out.length);
@@ -277,20 +299,31 @@ export class RoiTracker {
       return;
     }
     this.lost = 0;
-    const bw = stats.x1 - stats.x0;
-    const bh = stats.y1 - stats.y0;
-    const want = Math.min(Math.max(w, h), Math.max(bh * 1.32, bw * 1.25, h * 0.3));
-    const cx = (stats.x0 + stats.x1) / 2;
-    const cy = (stats.y0 + stats.y1) / 2;
+    let { x0, y0, x1, y1 } = stats;
     const r = this.roi;
     if (r) {
+      // The mask is cut by the ROI (not by the frame): the person continues past
+      // that edge, so extend the box that way to catch up in one step.
+      const eps = r.size / 128;
+      const bw = x1 - x0;
+      const bh = y1 - y0;
+      if (x0 <= r.x + eps && r.x > 0) x0 -= bw * 0.35;
+      if (x1 >= r.x + r.size - eps && r.x + r.size < w) x1 += bw * 0.35;
+      if (y0 <= r.y + eps && r.y > 0) y0 -= bh * 0.25;
+      if (y1 >= r.y + r.size - eps && r.y + r.size < h) y1 += bh * 0.25;
+    }
+    const bw = x1 - x0;
+    const bh = y1 - y0;
+    const want = Math.min(Math.max(w, h), Math.max(bh * 1.35, bw * 1.3, h * 0.3));
+    const cx = (x0 + x1) / 2;
+    const cy = (y0 + y1) / 2;
+    if (r) {
       const inner = 0.1 * r.size;
-      const inside =
-        stats.x0 > r.x + inner && stats.x1 < r.x + r.size - inner && stats.y0 > r.y + inner * 0.6 && stats.y1 < r.y + r.size - inner * 0.6;
+      const inside = x0 > r.x + inner && x1 < r.x + r.size - inner && y0 > r.y + inner * 0.6 && y1 < r.y + r.size - inner * 0.6;
       const sizeOk = want > r.size * 0.8 && want < r.size * 1.12;
       if (inside && sizeOk) return; // keep the ROI steady: fewer resamples, stabler masks
     }
-    const size = r ? r.size + (want - r.size) * 0.6 : want;
-    this.roi = { x: cx - size / 2, y: cy - size / 2, size };
+    const size = r ? Math.max(want, r.size + (want - r.size) * 0.6) : want;
+    this.roi = { x: cx - size / 2, y: cy - size / 2, size: Math.min(size, Math.max(w, h)) };
   }
 }

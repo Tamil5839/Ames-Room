@@ -108,7 +108,10 @@ export class UI {
       const b = el('button', `tb ${cls}`, `${icon(id === 'record' ? 'record' : id)}<span class="tb-label">${label}</span><kbd>${key}</kbd>`);
       b.type = 'button';
       b.title = `${label} (${key})`;
-      b.addEventListener('click', () => onClick());
+      b.addEventListener('click', () => {
+        onClick();
+        b.blur(); // keep Space/letters for the shortcuts, not for re-clicking this button
+      });
       this.buttons.set(id, b);
       toolbar.append(b);
       return b;
@@ -185,6 +188,7 @@ export class UI {
     look.add(s, 'vignette', 0, 1, 0.01).name('vignette').onChange(on('vignette'));
     look.add(s, 'personWarmth', -1, 1, 0.01).name('my warmth').onChange(on('personWarmth'));
     look.add(s, 'personBrightness', 0.5, 1.6, 0.01).name('my brightness').onChange(on('personBrightness'));
+    look.add(s, 'autoBrightness').name('match room brightness').onChange(on('autoBrightness'));
     look.add(s, 'personSaturation', 0, 1.5, 0.01).name('my saturation').onChange(on('personSaturation'));
     look.close();
 
@@ -276,6 +280,10 @@ export class UI {
     this.onboarding.classList.add('hidden');
   }
 
+  showOnboarding(): void {
+    this.onboarding.classList.remove('hidden');
+  }
+
   // ---------------------------------------------------------------- status
 
   setLock(locked: boolean, view: ViewName): void {
@@ -298,9 +306,13 @@ export class UI {
     if (text) this.fpsChip.textContent = text;
   }
 
+  private recState: boolean | null = null;
+
   setRecording(on: boolean, seconds: number): void {
-    this.recChip.classList.toggle('on', on);
     (this.recChip.querySelector('span') as HTMLElement).textContent = `REC ${fmtTime(seconds)}`;
+    if (on === this.recState) return;
+    this.recState = on;
+    this.recChip.classList.toggle('on', on);
     const b = this.buttons.get('record')!;
     b.classList.toggle('active', on);
     b.querySelector('svg')!.outerHTML = icon(on ? 'stop' : 'record');

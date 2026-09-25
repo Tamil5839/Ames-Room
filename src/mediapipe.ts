@@ -1,5 +1,5 @@
 import { ImageSegmenter } from '@mediapipe/tasks-vision';
-import { MASK_SIZE, maskStats, resampleMask, sameRoi, smoothMask, toUint8, type MaskStats, type Roi } from './maskproc';
+import { MASK_SIZE, maskStats, personLuminance, resampleMask, sameRoi, smoothMask, toUint8, type MaskStats, type Roi } from './maskproc';
 
 /**
  * MediaPipe ImageSegmenter wrapper shared by the segmentation worker and the
@@ -19,8 +19,12 @@ export interface SegmenterConfig {
 export interface SegmentResult {
   mask: Uint8Array;
   stats: MaskStats;
+  /** Mean linear luminance of the person (-1 if unknown), for brightness matching. */
+  lum: number;
   ms: number;
 }
+
+const LUM_SIZE = 32;
 
 export type WorkerRequest =
   | { type: 'init'; config: SegmenterConfig }
@@ -54,6 +58,7 @@ export class SegmentRunner {
   private prev: { mask: Uint8Array; roi: Roi } | null = null;
   private lastTs = 0;
   private readonly scratch = new Uint8Array(MASK_SIZE * MASK_SIZE);
+  private lumCanvas: OffscreenCanvas | null = null;
 
   private constructor(
     private readonly segmenter: ImageSegmenter,
@@ -127,7 +132,20 @@ export class SegmentRunner {
     }
     this.prev = { mask: out.slice(), roi: { ...roi } };
     const stats = maskStats(out, roi, videoW, videoH);
-    return { mask: out, stats, ms: performance.now() - t0 };
+    return { mask: out, stats, lum: this.luminance(image, out), ms: performance.now() - t0 };
+  }
+
+  private luminance(image: ImageBitmap, mask: Uint8Array): number {
+    try {
+      if (typeof OffscreenCanvas === 'undefined') return -1;
+      this.lumCanvas ??= new OffscreenCanvas(LUM_SIZE, LUM_SIZE);
+      const ctx = this.lumCanvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return -1;
+      ctx.drawImage(image, 0, 0, LUM_SIZE, LUM_SIZE);
+      return personLuminance(ctx.getImageData(0, 0, LUM_SIZE, LUM_SIZE).data, LUM_SIZE, mask);
+    } catch {
+      return -1;
+    }
   }
 
   close(): void {

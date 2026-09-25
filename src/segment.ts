@@ -1,5 +1,5 @@
 import { MASK_SIZE, RoiTracker, type MaskStats, type Roi } from './maskproc';
-import { SegmentRunner, type Delegate, type SegmenterConfig, type SegmentResult, type WorkerRequest, type WorkerResponse } from './mediapipe';
+import type { Delegate, SegmenterConfig, SegmentResult, SegmentRunner, WorkerRequest, WorkerResponse } from './mediapipe';
 import type { SegModel } from './config';
 
 /**
@@ -24,6 +24,8 @@ export interface PersonFrame {
   videoW: number;
   videoH: number;
   stats: MaskStats;
+  /** Mean linear luminance of the person (-1 if unknown). */
+  lum: number;
 }
 
 export interface PersonSource {
@@ -156,6 +158,8 @@ async function createBackend(model: SegModel, onStatus: (s: string) => void): Pr
   } catch (err) {
     console.warn('[Ames] segmentation worker unavailable, running on the main thread:', err);
     onStatus('Loading segmentation…');
+    // Loaded on demand so MediaPipe stays out of the main bundle when the worker works.
+    const { SegmentRunner } = await import('./mediapipe');
     return new MainThreadBackend(await SegmentRunner.create(config));
   }
 }
@@ -181,13 +185,45 @@ export async function listCameras(): Promise<MediaDeviceInfo[]> {
   return devices.filter((d) => d.kind === 'videoinput');
 }
 
-/** Crops the ROI from a frame source as a COLOR_SIZE² bitmap plus a MASK_SIZE² copy for the model. */
+let cropCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
+let directCropWorks = true;
+
+/**
+ * Crops the ROI from a frame source as a COLOR_SIZE² bitmap plus a MASK_SIZE² copy
+ * for the model. The ROI may extend past the frame (it is letterboxed while
+ * searching); areas outside the frame come out transparent black.
+ */
 export async function captureRoi(source: CanvasImageSource & ImageBitmapSource, roi: Roi): Promise<[ImageBitmap, ImageBitmap]> {
-  const color = await createImageBitmap(source, Math.round(roi.x), Math.round(roi.y), Math.round(roi.size), Math.round(roi.size), {
-    resizeWidth: COLOR_SIZE,
-    resizeHeight: COLOR_SIZE,
-    resizeQuality: 'medium',
-  });
+  const x = Math.round(roi.x);
+  const y = Math.round(roi.y);
+  const size = Math.round(roi.size);
+  let color: ImageBitmap | null = null;
+  if (directCropWorks) {
+    try {
+      color = await createImageBitmap(source, x, y, size, size, { resizeWidth: COLOR_SIZE, resizeHeight: COLOR_SIZE, resizeQuality: 'medium' });
+      if (color.width !== COLOR_SIZE) {
+        color.close();
+        color = null;
+        directCropWorks = false;
+      }
+    } catch {
+      directCropWorks = false;
+    }
+  }
+  if (!color) {
+    // Fallback: drawImage clips an out-of-bounds source rectangle the same way.
+    if (!cropCanvas) {
+      if (typeof OffscreenCanvas !== 'undefined') cropCanvas = new OffscreenCanvas(COLOR_SIZE, COLOR_SIZE);
+      else {
+        cropCanvas = document.createElement('canvas');
+        cropCanvas.width = cropCanvas.height = COLOR_SIZE;
+      }
+    }
+    const ctx = cropCanvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+    ctx.clearRect(0, 0, COLOR_SIZE, COLOR_SIZE);
+    ctx.drawImage(source, x, y, size, size, 0, 0, COLOR_SIZE, COLOR_SIZE);
+    color = await createImageBitmap(cropCanvas);
+  }
   const small = await createImageBitmap(color, { resizeWidth: MASK_SIZE, resizeHeight: MASK_SIZE, resizeQuality: 'medium' });
   return [color, small];
 }
@@ -278,7 +314,7 @@ export class CameraSource implements PersonSource {
         return;
       }
       this.roiTracker.update(res.stats, vw, vh);
-      this.publish({ id: ++this.frameId, time: now, color, mask: res.mask, roi, videoW: vw, videoH: vh, stats: res.stats });
+      this.publish({ id: ++this.frameId, time: now, color, mask: res.mask, roi, videoW: vw, videoH: vh, stats: res.stats, lum: res.lum });
       color = null;
       this.countFps();
     } catch (err) {

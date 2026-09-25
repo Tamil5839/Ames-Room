@@ -58,6 +58,7 @@ export interface Settings {
   vignette: number;
   personWarmth: number;
   personBrightness: number;
+  autoBrightness: boolean;
   personSaturation: number;
   // Output
   aspect: AspectPreset;
@@ -91,6 +92,7 @@ export const DEFAULT_SETTINGS: Settings = {
   vignette: 0.55,
   personWarmth: 0.35,
   personBrightness: 1.0,
+  autoBrightness: true,
   personSaturation: 0.9,
   aspect: 'fill',
   captions: true,

@@ -13,7 +13,7 @@ export interface Pose {
 
 const DEG = Math.PI / 180;
 /** How high the reveal camera rises above the room (degrees of elevation). */
-const REVEAL_ELEVATION = 30 * DEG;
+const REVEAL_ELEVATION = 24 * DEG;
 
 /**
  * Hero vertical FOV for an aspect ratio. The eye point never moves (that is what
@@ -262,7 +262,7 @@ export class CameraRig {
     }
     if (this.view === 'reveal') {
       // A slow drift keeps the reveal shot alive.
-      this.drift += dt * 1.2;
+      this.drift += dt * 0.8;
       this.applyPose(this.revealPose());
     }
     if (this.view === 'hero' && this.settleT >= 0) {
