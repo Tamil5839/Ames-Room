@@ -26,6 +26,9 @@ processing). Camera access needs `https://` or `localhost`.
 
 No webcam handy? Click **Try the demo performer** (or open `/?demo=1`): a
 synthetic person walks through the same pipeline, so every feature works.
+`/?demo=upper` frames the performer like a laptop camera (no feet), which shows
+the upper-body counter mode. You can switch cameras, or to the demo, at any time
+in *Settings → Source*.
 
 ### Getting a good cutout
 
@@ -39,7 +42,10 @@ synthetic person walks through the same pipeline, so every feature works.
 - If your feet are not in the frame, the app switches to **upper-body mode**:
   a waist-high counter appears along the back wall and you stand behind it, so
   the counter hides the cut.
-- The bottom-left preview shows what the camera sees, with your cutout in cyan.
+- The bottom-left preview shows what the camera sees (mirrored), with your cutout
+  in cyan. The two dashed lines mark the part of the frame that maps onto the
+  room: stand on the left line for the far corner and on the right line for the
+  near one (adjust them in *Settings → Walking line*).
 
 ## Controls
 

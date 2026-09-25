@@ -36,6 +36,8 @@ export interface PersonSource {
   fps: number;
   /** Returns the newest processed frame (once), or null. The caller owns `color`. */
   take(): PersonFrame | null;
+  /** The raw camera picture (for the preview), or null. */
+  view(): CanvasImageSource | null;
   stop(): void;
 }
 
@@ -342,6 +344,10 @@ export class CameraSource implements PersonSource {
     const f = this.latest;
     this.latest = null;
     return f;
+  }
+
+  view(): CanvasImageSource | null {
+    return this.video.readyState >= 2 ? this.video : null;
   }
 
   stop(): void {

@@ -134,6 +134,10 @@ const ui = new UI(document.getElementById('ui')!, settings, {
   onDirector: () => void directorAction(),
   onStartCamera: (id) => void startCamera(id),
   onStartDemo: () => startDemo(),
+  onSwitchSource: (id) => {
+    if (id === 'demo' || id === 'demo-upper') startDemo(id === 'demo' ? 'full' : 'upper');
+    else void startCamera(id || undefined);
+  },
   onSettingChange: (key) => applySettings(key),
   onRecalibrate: () => {
     tracker.recalibrate();
@@ -279,11 +283,16 @@ async function startCamera(deviceId?: string): Promise<void> {
   ui.setOnboardingError(null);
   try {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera access needs a secure context (https or localhost).');
+    // Release the current source first: some cameras can't be opened twice.
+    source?.stop();
+    source = null;
     const stream = await openCamera({ deviceId });
     video.srcObject = stream;
     await video.play();
     const cams = await listCameras();
-    ui.setCameras(cams, stream.getVideoTracks()[0]?.getSettings().deviceId);
+    const active = stream.getVideoTracks()[0]?.getSettings().deviceId;
+    ui.setCameras(cams, active);
+    ui.setSources(cams, active ?? '');
     const cam = new CameraSource(video, () => settings.maskSmoothing, settings.segModel);
     setSource(cam);
     ui.hideOnboarding();
@@ -312,6 +321,9 @@ async function startCamera(deviceId?: string): Promise<void> {
 function startDemo(framing: 'full' | 'upper' = 'full'): void {
   sfx.unlock();
   setSource(new DemoSource(framing));
+  void listCameras()
+    .then((cams) => ui.setSources(cams, framing === 'full' ? 'demo' : 'demo-upper'))
+    .catch(() => ui.setSources([], framing === 'full' ? 'demo' : 'demo-upper'));
   ui.hideOnboarding();
   ui.toast('Demo performer: ← → to move, W to wave (or let it wander)');
 }
@@ -575,29 +587,53 @@ pipMask.width = MASK_SIZE;
 pipMask.height = MASK_SIZE;
 let pipTime = 0;
 function drawPip(f: PersonFrame, now: number): void {
-  if (now - pipTime < 90 || ui.hidden) return;
+  if (now - pipTime < 90 || ui.hidden || !source) return;
   pipTime = now;
   const ctx = ui.pip.getContext('2d');
   const mctx = pipMask.getContext('2d');
   if (!ctx || !mctx) return;
-  const n = ui.pip.width;
+  const W = ui.pip.width;
+  const H = ui.pip.height;
+  // Fit the camera frame into the preview, mirrored like the room.
+  const k = Math.min(W / f.videoW, H / f.videoH);
+  const fw = f.videoW * k;
+  const fh = f.videoH * k;
+  const ox = (W - fw) / 2;
+  const oy = (H - fh) / 2;
   ctx.save();
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
   if (settings.mirror) {
-    ctx.translate(n, 0);
+    ctx.translate(W, 0);
     ctx.scale(-1, 1);
   }
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, n, n);
-  ctx.drawImage(f.color, 0, 0, n, n);
+  const view = source.view();
+  if (view) ctx.drawImage(view, ox, oy, fw, fh);
   const img = mctx.createImageData(MASK_SIZE, MASK_SIZE);
   for (let i = 0; i < f.mask.length; i++) {
     img.data[i * 4] = 60;
     img.data[i * 4 + 1] = 230;
     img.data[i * 4 + 2] = 255;
-    img.data[i * 4 + 3] = f.mask[i] * 0.42;
+    img.data[i * 4 + 3] = f.mask[i] * 0.5;
   }
   mctx.putImageData(img, 0, 0);
-  ctx.drawImage(pipMask, 0, 0, n, n);
+  ctx.beginPath();
+  ctx.rect(ox, oy, fw, fh);
+  ctx.clip();
+  ctx.drawImage(pipMask, ox + f.roi.x * k, oy + f.roi.y * k, f.roi.size * k, f.roi.size * k);
+  ctx.restore();
+  // The part of the frame that maps onto the walking line (in mirrored view coordinates).
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255, 210, 122, 0.85)';
+  ctx.setLineDash([4, 4]);
+  ctx.lineWidth = 1;
+  for (const r of [settings.walkRangeMin, settings.walkRangeMax]) {
+    const x = Math.round(ox + r * fw) + 0.5;
+    ctx.beginPath();
+    ctx.moveTo(x, oy);
+    ctx.lineTo(x, oy + fh);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 

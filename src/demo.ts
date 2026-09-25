@@ -237,6 +237,10 @@ export class DemoSource implements PersonSource {
     return f;
   }
 
+  view(): CanvasImageSource | null {
+    return this.frame as CanvasImageSource;
+  }
+
   stop(): void {
     this.stopped = true;
     cancelAnimationFrame(this.raf);

@@ -214,8 +214,8 @@ body {
   position: absolute;
   left: 16px;
   bottom: max(18px, env(safe-area-inset-bottom));
-  width: 132px;
-  height: 132px;
+  width: 192px;
+  height: 108px;
   border-radius: 12px;
   border: 1px solid var(--line);
   background: #000;
@@ -223,7 +223,7 @@ body {
   transition: opacity 0.25s;
 }
 
-@media (max-width: 760px) { .pip { width: 84px; height: 84px; bottom: 96px; } }
+@media (max-width: 760px) { .pip { width: 112px; height: 63px; bottom: 96px; } }
 
 /* ---------------------------------------------------------------- cues */
 

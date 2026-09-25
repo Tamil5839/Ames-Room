@@ -1,4 +1,4 @@
-import GUI from 'lil-gui';
+import GUI, { type Controller } from 'lil-gui';
 import type { ViewName } from './camera';
 import { DEFAULT_SETTINGS, type Settings } from './config';
 import type { GhostState } from './ghost';
@@ -14,6 +14,7 @@ export interface UIHandlers {
   onDirector(): void;
   onStartCamera(deviceId?: string): void;
   onStartDemo(): void;
+  onSwitchSource(id: string): void;
   onSettingChange(key: keyof Settings): void;
   onRecalibrate(): void;
   onRunChecks(): void;
@@ -76,6 +77,9 @@ export class UI {
   private readonly result: HTMLElement;
   private toastTimer = 0;
   private resultUrl: string | null = null;
+  private sourceFolder!: GUI;
+  private sourceCtrl: Controller | null = null;
+  private readonly sourceState = { source: '' };
 
   constructor(
     root: HTMLElement,
@@ -129,9 +133,9 @@ export class UI {
     add('hide', 'Hide UI', 'H', () => this.toggleHidden());
 
     this.pip = el('canvas', 'pip');
-    this.pip.width = 200;
-    this.pip.height = 200;
-    this.pip.title = 'What the camera sees (cyan = your cutout)';
+    this.pip.width = 256;
+    this.pip.height = 144;
+    this.pip.title = 'What the camera sees: cyan is your cutout, the dashed lines are the ends of the room';
 
     this.toastEl = el('div', 'toast');
     this.onboarding = this.buildOnboarding();
@@ -154,6 +158,9 @@ export class UI {
     const gui = new GUI({ title: 'Settings', container: this.root, width: 300 });
     gui.domElement.classList.add('settings-panel');
     const on = (key: keyof Settings) => () => h.onSettingChange(key);
+
+    this.sourceFolder = gui.addFolder('Source');
+    this.setSources([], '');
 
     const warp = gui.addFolder('Warp');
     warp.add(s, 'leftFactor', 1.1, 3.2, 0.01).name('far corner ×distance').onChange(on('leftFactor'));
@@ -206,6 +213,23 @@ export class UI {
     gui.add({ reset: () => h.onResetSettings() }, 'reset').name('reset to defaults');
     gui.hide();
     return gui;
+  }
+
+  /** Camera / demo picker in the settings panel. */
+  setSources(cameras: MediaDeviceInfo[], current: string): void {
+    const opts: Record<string, string> = {};
+    cameras.forEach((c, i) => {
+      if (c.deviceId) opts[c.label || `Camera ${i + 1}`] = c.deviceId;
+    });
+    if (!cameras.some((c) => c.deviceId)) opts['Camera'] = '';
+    opts['Demo performer'] = 'demo';
+    opts['Demo (laptop framing)'] = 'demo-upper';
+    this.sourceState.source = current;
+    this.sourceCtrl?.destroy();
+    this.sourceCtrl = this.sourceFolder
+      .add(this.sourceState, 'source', opts)
+      .name('camera')
+      .onChange((v: string) => this.handlers.onSwitchSource(v));
   }
 
   refreshGui(): void {
